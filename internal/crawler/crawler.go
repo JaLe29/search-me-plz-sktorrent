@@ -7,10 +7,12 @@ import (
 	"net/http"
 	"net/url"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/JaLe29/ratelimit-simple-proxy/internal/database"
 	"github.com/PuerkitoBio/goquery"
 )
 
@@ -18,13 +20,14 @@ type Torrent struct {
 	ID         string // unikátní ID torrentu z URL
 	Name       string
 	Category   string
-	Size       string
+	SizeMB     float64   // velikost v MB
+	AddedDate  time.Time // datum přidání
 	Seeds      int
 	Leeches    int
 	URL        string
 	ImageURL   string
-	CSFDRating string // hodnocení z názvu, např. "77%"
-	CSFDURL    string // přímý odkaz na ČSFD (volitelné, pomalé stahování)
+	CSFDRating int    // hodnocení jako číslo (77 místo "77%")
+	CSFDURL    string // přímý odkaz na ČSFD
 }
 
 type CrawlResult struct {
@@ -38,6 +41,7 @@ type Config struct {
 	BaseURL   string
 	UserAgent string
 	Timeout   time.Duration
+	Database  *database.Database // databáze pro ukládání
 }
 
 type Crawler struct {
@@ -196,7 +200,7 @@ func (c *Crawler) parseTorrents(doc *goquery.Document) []Torrent {
 		c.parseMetadata(s, &torrent)
 
 		// Vždy stáhnout přímý ČSFD odkaz z detail stránky (pokud má ČSFD hodnocení)
-		if torrent.CSFDRating != "" {
+		if torrent.CSFDRating != 0 {
 			torrent.CSFDURL = c.fetchCSFDURL(torrent.URL)
 		}
 
@@ -215,12 +219,15 @@ func (c *Crawler) extractTorrentID(href string) string {
 	return u.Query().Get("id")
 }
 
-func (c *Crawler) parseCSFDRating(name string) string {
+func (c *Crawler) parseCSFDRating(name string) int {
 	matches := c.csfdRegex.FindStringSubmatch(name)
 	if len(matches) >= 2 {
-		return matches[1] + "%"
+		rating, err := strconv.Atoi(matches[1])
+		if err == nil {
+			return rating
+		}
 	}
-	return ""
+	return 0
 }
 
 func (c *Crawler) fetchCSFDURL(detailURL string) string {
@@ -285,7 +292,8 @@ func (c *Crawler) parseMetadata(s *goquery.Selection, torrent *Torrent) {
 			line = strings.TrimSpace(line)
 
 			if strings.HasPrefix(line, "Velkost") {
-				torrent.Size = strings.TrimSpace(strings.Replace(line, "Velkost", "", 1))
+				// Parsovat velikost a datum z řádku jako "Velkost: 6.9 GB | Pridany 02/07/2025"
+				c.parseSizeAndDate(line, torrent)
 			} else if strings.HasPrefix(line, "Odosielaju") {
 				seedText := strings.TrimSpace(strings.Replace(line, "Odosielaju :", "", 1))
 				fmt.Sscanf(seedText, "%d", &torrent.Seeds)
@@ -297,6 +305,75 @@ func (c *Crawler) parseMetadata(s *goquery.Selection, torrent *Torrent) {
 	})
 }
 
+func (c *Crawler) parseSizeAndDate(line string, torrent *Torrent) {
+	// Očekáváme formát: "Velkost 6.9 GB | Pridany 02/07/2025"
+	parts := strings.Split(line, "|")
+
+	// Parsování velikosti
+	if len(parts) >= 1 {
+		sizePart := strings.TrimSpace(parts[0])
+		sizePart = strings.Replace(sizePart, "Velkost", "", 1)
+		sizePart = strings.TrimSpace(sizePart)
+		torrent.SizeMB = c.parseSizeMB(sizePart)
+	}
+
+	// Parsování data
+	if len(parts) >= 2 {
+		datePart := strings.TrimSpace(parts[1])
+		datePart = strings.Replace(datePart, "Pridany", "", 1)
+		datePart = strings.TrimSpace(datePart)
+		torrent.AddedDate = c.parseAddedDate(datePart)
+	}
+}
+
+func (c *Crawler) parseSizeMB(sizeStr string) float64 {
+	// Parsování velikosti z formátu "6.9 GB", "1.2 TB", "500 MB" atd.
+	re := regexp.MustCompile(`([0-9.]+)\s*(GB|TB|MB|KB)`)
+	matches := re.FindStringSubmatch(sizeStr)
+
+	if len(matches) != 3 {
+		return 0.0
+	}
+
+	value, err := strconv.ParseFloat(matches[1], 64)
+	if err != nil {
+		return 0.0
+	}
+
+	unit := strings.ToUpper(matches[2])
+	switch unit {
+	case "KB":
+		return value / 1024 // Convert KB to MB
+	case "MB":
+		return value
+	case "GB":
+		return value * 1024 // Convert GB to MB
+	case "TB":
+		return value * 1024 * 1024 // Convert TB to MB
+	default:
+		return value
+	}
+}
+
+func (c *Crawler) parseAddedDate(dateStr string) time.Time {
+	// Parsování data z formátu "02/07/2025"
+	layouts := []string{
+		"02/01/2006",
+		"2/1/2006",
+		"02/1/2006",
+		"2/01/2006",
+	}
+
+	for _, layout := range layouts {
+		if parsedTime, err := time.Parse(layout, dateStr); err == nil {
+			return parsedTime
+		}
+	}
+
+	// Pokud se nepodaří parsovat, vrátíme aktuální čas
+	return time.Now()
+}
+
 func (c *Crawler) processResults(results <-chan CrawlResult) {
 	resultMap := make(map[int]CrawlResult)
 
@@ -305,8 +382,10 @@ func (c *Crawler) processResults(results <-chan CrawlResult) {
 		resultMap[result.PageNum] = result
 	}
 
-	// Zobrazení výsledků v pořadí
+	// Zpracování výsledků v pořadí
 	totalTorrents := 0
+	savedTorrents := 0
+
 	for pageNum := range resultMap {
 		result := resultMap[pageNum]
 
@@ -315,32 +394,72 @@ func (c *Crawler) processResults(results <-chan CrawlResult) {
 			continue
 		}
 
-		fmt.Printf("\n🔥 STRÁNKA %d - NALEZENO %d TORRENTŮ 🔥\n", result.PageNum, len(result.Torrents))
+		fmt.Printf("💾 UKLÁDÁNÍ STRÁNKY %d - %d TORRENTŮ\n", result.PageNum, len(result.Torrents))
 
-		for j, torrent := range result.Torrents {
-			fmt.Printf("[%d] 📺 %s\n", j+1, torrent.Name)
-			fmt.Printf("    🆔 ID: %s\n", torrent.ID)
-			fmt.Printf("    🏷️  Kategorie: %s\n", torrent.Category)
-			fmt.Printf("    📦 Velikost: %s\n", torrent.Size)
-			fmt.Printf("    🌱 Seeders: %d | 🩸 Leechers: %d\n", torrent.Seeds, torrent.Leeches)
-			if torrent.CSFDRating != "" {
-				fmt.Printf("    ⭐ ČSFD: %s\n", torrent.CSFDRating)
+		// Uložení torrentů do databáze
+		for _, torrent := range result.Torrents {
+			if c.config.Database != nil {
+				// Uložit základní informace o torrentu
+				dbTorrent := c.convertToDBTorrent(torrent)
+				if err := c.config.Database.UpsertTorrent(&dbTorrent); err != nil {
+					fmt.Printf("⚠️  Chyba při ukládání torrentu %s: %v\n", torrent.ID, err)
+					continue
+				}
+
+				// Zaznamenat aktuální stats (seeds/leeches) s časovým razítkem
+				if err := c.config.Database.RecordTorrentStats(torrent.ID, torrent.Seeds, torrent.Leeches); err != nil {
+					fmt.Printf("⚠️  Chyba při ukládání stats pro %s: %v\n", torrent.ID, err)
+				}
+
+				savedTorrents++
 			}
-			if torrent.CSFDURL != "" {
-				fmt.Printf("    🎬 ČSFD URL: %s\n", torrent.CSFDURL)
+
+			// Stručný výpis
+			fmt.Printf("  ✅ %s", torrent.Name)
+			if torrent.CSFDRating != 0 {
+				fmt.Printf(" (ČSFD: %d%%)", torrent.CSFDRating)
 			}
-			if torrent.ImageURL != "" {
-				fmt.Printf("    🖼️  Obrázek: %s\n", torrent.ImageURL)
+			fmt.Printf(" [%.1f MB]", torrent.SizeMB)
+			fmt.Printf(" [S:%d L:%d]", torrent.Seeds, torrent.Leeches)
+			if !torrent.AddedDate.IsZero() {
+				fmt.Printf(" [%s]", torrent.AddedDate.Format("02.01.06"))
 			}
-			fmt.Printf("    🔗 URL: %s\n", torrent.URL)
-			fmt.Println("    " + strings.Repeat("─", 60))
+			fmt.Printf("\n")
 		}
 
 		totalTorrents += len(result.Torrents)
-		fmt.Printf("✅ KONEC STRÁNKY %d\n", result.PageNum)
 	}
 
 	fmt.Printf("\n🎉 CRAWLING DOKONČEN! 🎉\n")
 	fmt.Printf("📊 Celkový počet torrentů: %d\n", totalTorrents)
+	fmt.Printf("💾 Uloženo do databáze: %d\n", savedTorrents)
 	fmt.Printf("⚙️  Použito workerů: %d\n", c.config.Workers)
+
+	// Zobrazení statistik databáze
+	if c.config.Database != nil {
+		if stats, err := c.config.Database.GetStats(); err == nil {
+			fmt.Printf("\n📈 STATISTIKY DATABÁZE:\n")
+			fmt.Printf("  🗃️  Celkem torrentů: %d\n", stats["total"])
+			for category, count := range stats {
+				if category != "total" && count > 0 {
+					fmt.Printf("  📁 %s: %d\n", category, count)
+				}
+			}
+		}
+	}
+}
+
+// convertToDBTorrent převede crawler.Torrent na database.Torrent
+func (c *Crawler) convertToDBTorrent(t Torrent) database.Torrent {
+	return database.Torrent{
+		ID:         t.ID,
+		Name:       t.Name,
+		Category:   t.Category,
+		SizeMB:     t.SizeMB,
+		AddedDate:  t.AddedDate,
+		URL:        t.URL,
+		ImageURL:   t.ImageURL,
+		CSFDRating: t.CSFDRating,
+		CSFDURL:    t.CSFDURL,
+	}
 }

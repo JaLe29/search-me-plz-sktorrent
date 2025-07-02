@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/JaLe29/ratelimit-simple-proxy/internal/crawler"
+	"github.com/JaLe29/ratelimit-simple-proxy/internal/database"
 )
 
 func main() {
@@ -17,6 +18,7 @@ func main() {
 		toPage   = flag.Int("to", 2, "Koncová stránka pro crawling")
 		workers  = flag.Int("workers", 3, "Počet paralelních workerů")
 		timeout  = flag.Int("timeout", 30, "Timeout pro HTTP požadavky (sekundy)")
+		dbPath   = flag.String("db", "torrents.db", "Cesta k SQLite databázi")
 	)
 	flag.Parse()
 
@@ -32,12 +34,27 @@ func main() {
 	fmt.Printf("📄 Stránky: %d - %d\n", *fromPage, *toPage)
 	fmt.Printf("⚙️  Workery: %d\n", *workers)
 	fmt.Printf("⏱️  Timeout: %ds\n", *timeout)
+	fmt.Printf("🗃️  Databáze: %s\n", *dbPath)
 	fmt.Println(strings.Repeat("=", 50))
+
+	// Inicializace databáze
+	db, err := database.NewDatabase(*dbPath)
+	if err != nil {
+		log.Fatalf("❌ Chyba při inicializaci databáze: %v", err)
+	}
+	defer func() {
+		if err := db.Close(); err != nil {
+			fmt.Printf("⚠️  Chyba při zavírání databáze: %v\n", err)
+		}
+	}()
+
+	fmt.Printf("✅ Databáze inicializována\n")
 
 	// Konfigurace crawleru
 	config := crawler.Config{
-		Workers: *workers,
-		Timeout: time.Duration(*timeout) * time.Second,
+		Workers:  *workers,
+		Timeout:  time.Duration(*timeout) * time.Second,
+		Database: db,
 	}
 
 	// Vytvoření a spuštění crawleru
