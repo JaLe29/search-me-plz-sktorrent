@@ -421,3 +421,47 @@ func (d *Database) GetStats() (map[string]int, error) {
 
 	return stats, nil
 }
+
+// GetTorrentsByCSFDID vrátí torrenty podle CSFD ID s aktuálními stats
+func (d *Database) GetTorrentsByCSFDID(csfdID string, limit int) ([]TorrentWithStats, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+
+	query := `
+	SELECT t.id, t.name, t.category, t.size_mb, t.added_date, t.url, t.image_url,
+		   t.csfd_rating, t.csfd_url, t.created_at, t.updated_at,
+		   COALESCE(s.seeds, 0) as seeds, COALESCE(s.leeches, 0) as leeches
+	FROM torrents t
+	LEFT JOIN (
+		SELECT torrent_id, seeds, leeches,
+			   ROW_NUMBER() OVER (PARTITION BY torrent_id ORDER BY recorded_at DESC) as rn
+		FROM torrent_stats
+	) s ON t.id = s.torrent_id AND s.rn = 1
+	WHERE t.csfd_url LIKE ?
+	ORDER BY t.updated_at DESC
+	LIMIT ?
+	`
+
+	rows, err := d.db.Query(query, "%"+csfdID+"%", limit)
+	if err != nil {
+		return nil, fmt.Errorf("getting torrents by CSFD ID: %w", err)
+	}
+	defer rows.Close()
+
+	var torrents []TorrentWithStats
+	for rows.Next() {
+		var t TorrentWithStats
+		err := rows.Scan(
+			&t.ID, &t.Name, &t.Category, &t.SizeMB, &t.AddedDate,
+			&t.URL, &t.ImageURL, &t.CSFDRating, &t.CSFDURL,
+			&t.CreatedAt, &t.UpdatedAt, &t.Seeds, &t.Leeches,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("scanning torrent: %w", err)
+		}
+		torrents = append(torrents, t)
+	}
+
+	return torrents, nil
+}

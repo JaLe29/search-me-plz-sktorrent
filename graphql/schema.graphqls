@@ -1,0 +1,86 @@
+scalar Time
+
+type Torrent {
+  id: ID!
+  name: String!
+  category: String!
+  sizeMB: Float!
+  addedDate: Time!
+  url: String!
+  imageURL: String
+  csfdRating: Int
+  csfdURL: String
+  createdAt: Time!
+  updatedAt: Time!
+  seeds: Int!
+  leeches: Int!
+}
+
+type TorrentStats {
+  id: ID!
+  torrentID: String!
+  seeds: Int!
+  leeches: Int!
+  recordedAt: Time!
+}
+
+type TorrentConnection {
+  torrents: [Torrent!]!
+  totalCount: Int!
+  hasNextPage: Boolean!
+  hasPreviousPage: Boolean!
+}
+
+type Category {
+  name: String!
+  count: Int!
+}
+
+type Query {
+  # Získání torrentu podle ID
+  torrent(id: ID!): Torrent
+
+  # Seznam torrentů s stránkováním
+  torrents(
+    first: Int = 20
+    after: String
+    category: String
+    search: String
+    sortBy: TorrentSortBy = NEWEST
+  ): TorrentConnection!
+
+  # Nejnovější torrenty
+  recentTorrents(limit: Int = 20): [Torrent!]!
+
+  # Vyhledávání torrentů
+  searchTorrents(query: String!, limit: Int = 20): [Torrent!]!
+
+  # Torrenty podle kategorie
+  torrentsByCategory(category: String!, limit: Int = 20): [Torrent!]!
+
+  # Torrenty podle CSFD ID
+  torrentsByCSFDID(csfdID: String!, limit: Int = 20): [Torrent!]!
+
+  # Všechny kategorie s počtem torrentů
+  categories: [Category!]!
+
+  # Statistiky databáze
+  stats: DatabaseStats!
+}
+
+type DatabaseStats {
+  totalTorrents: Int!
+  totalCategories: Int!
+  categoryCounts: [Category!]!
+}
+
+enum TorrentSortBy {
+  NEWEST
+  OLDEST
+  NAME_ASC
+  NAME_DESC
+  SIZE_ASC
+  SIZE_DESC
+  SEEDS_DESC
+  LEECHES_DESC
+}
