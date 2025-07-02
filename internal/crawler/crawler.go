@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"regexp"
 	"strings"
 	"sync"
@@ -14,6 +15,7 @@ import (
 )
 
 type Torrent struct {
+	ID         string // unikátní ID torrentu z URL
 	Name       string
 	Category   string
 	Size       string
@@ -166,9 +168,11 @@ func (c *Crawler) parseTorrents(doc *goquery.Document) []Torrent {
 			return
 		}
 
-		// URL
+		// URL a ID
 		if href, exists := detailsLink.Attr("href"); exists {
 			torrent.URL = "https://sktorrent.eu/torrent/" + href
+			// Extrakce ID z URL parametrů
+			torrent.ID = c.extractTorrentID(href)
 		}
 
 		// ČSFD hodnocení z názvu
@@ -200,6 +204,15 @@ func (c *Crawler) parseTorrents(doc *goquery.Document) []Torrent {
 	})
 
 	return torrents
+}
+
+func (c *Crawler) extractTorrentID(href string) string {
+	// href vypadá jako: details.php?name=...&id=339688748bd23e2ec25945937872287be91343f9
+	u, err := url.Parse(href)
+	if err != nil {
+		return ""
+	}
+	return u.Query().Get("id")
 }
 
 func (c *Crawler) parseCSFDRating(name string) string {
@@ -306,6 +319,7 @@ func (c *Crawler) processResults(results <-chan CrawlResult) {
 
 		for j, torrent := range result.Torrents {
 			fmt.Printf("[%d] 📺 %s\n", j+1, torrent.Name)
+			fmt.Printf("    🆔 ID: %s\n", torrent.ID)
 			fmt.Printf("    🏷️  Kategorie: %s\n", torrent.Category)
 			fmt.Printf("    📦 Velikost: %s\n", torrent.Size)
 			fmt.Printf("    🌱 Seeders: %d | 🩸 Leechers: %d\n", torrent.Seeds, torrent.Leeches)
