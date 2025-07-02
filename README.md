@@ -35,7 +35,7 @@ go build -o search cmd/search/main.go
 ./crawler -from=0 -to=5 -workers=3
 
 # Základní parametry
-./crawler -from=0 -to=10 -workers=5 -timeout=60 -db=my_torrents.db
+./crawler -from=0 -to=50 -workers=10 -timeout=60 -db=torrents.db
 ```
 
 **Parametry:**

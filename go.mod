@@ -1,8 +1,11 @@
-module github.com/JaLe29/ratelimit-simple-proxy
+module github.com/JaLe29/search-me-plz-sktorrent
 
 go 1.24.2
 
-require github.com/PuerkitoBio/goquery v1.10.3
+require (
+	github.com/PuerkitoBio/goquery v1.10.3
+	modernc.org/sqlite v1.38.0
+)
 
 require (
 	github.com/andybalholm/cascadia v1.3.3 // indirect
@@ -17,5 +20,4 @@ require (
 	modernc.org/libc v1.65.10 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.11.0 // indirect
-	modernc.org/sqlite v1.38.0 // indirect
 )

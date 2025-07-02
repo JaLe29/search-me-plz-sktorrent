@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/JaLe29/ratelimit-simple-proxy/internal/crawler"
-	"github.com/JaLe29/ratelimit-simple-proxy/internal/database"
+	"github.com/JaLe29/search-me-plz-sktorrent/internal/crawler"
+	"github.com/JaLe29/search-me-plz-sktorrent/internal/database"
 )
 
 func main() {

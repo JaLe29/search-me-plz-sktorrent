@@ -6,7 +6,7 @@ import (
 	"log"
 	"strings"
 
-	"github.com/JaLe29/ratelimit-simple-proxy/internal/database"
+	"github.com/JaLe29/search-me-plz-sktorrent/internal/database"
 )
 
 func main() {
