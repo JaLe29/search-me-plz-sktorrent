@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -13,13 +14,15 @@ import (
 )
 
 type Torrent struct {
-	Name     string
-	Category string
-	Size     string
-	Seeds    int
-	Leeches  int
-	URL      string
-	ImageURL string
+	Name       string
+	Category   string
+	Size       string
+	Seeds      int
+	Leeches    int
+	URL        string
+	ImageURL   string
+	CSFDRating string // hodnocení z názvu, např. "77%"
+	CSFDURL    string // přímý odkaz na ČSFD (volitelné, pomalé stahování)
 }
 
 type CrawlResult struct {
@@ -36,8 +39,9 @@ type Config struct {
 }
 
 type Crawler struct {
-	client *http.Client
-	config Config
+	client    *http.Client
+	config    Config
+	csfdRegex *regexp.Regexp
 }
 
 func NewCrawler(config Config) *Crawler {
@@ -54,11 +58,15 @@ func NewCrawler(config Config) *Crawler {
 		config.Workers = 3
 	}
 
+	// Regex pro parsování ČSFD hodnocení z názvu
+	csfdRegex := regexp.MustCompile(`=\s*CSFD\s*(\d+)%`)
+
 	return &Crawler{
 		client: &http.Client{
 			Timeout: config.Timeout,
 		},
-		config: config,
+		config:    config,
+		csfdRegex: csfdRegex,
 	}
 }
 
@@ -163,6 +171,9 @@ func (c *Crawler) parseTorrents(doc *goquery.Document) []Torrent {
 			torrent.URL = "https://sktorrent.eu/torrent/" + href
 		}
 
+		// ČSFD hodnocení z názvu
+		torrent.CSFDRating = c.parseCSFDRating(torrent.Name)
+
 		// Kategorie
 		categoryLink := s.Find("a[href*='torrents_v2.php?category=']")
 		if categoryLink.Length() > 0 {
@@ -180,10 +191,73 @@ func (c *Crawler) parseTorrents(doc *goquery.Document) []Torrent {
 		// Velikost, seeders, leechers
 		c.parseMetadata(s, &torrent)
 
+		// Vždy stáhnout přímý ČSFD odkaz z detail stránky (pokud má ČSFD hodnocení)
+		if torrent.CSFDRating != "" {
+			torrent.CSFDURL = c.fetchCSFDURL(torrent.URL)
+		}
+
 		torrents = append(torrents, torrent)
 	})
 
 	return torrents
+}
+
+func (c *Crawler) parseCSFDRating(name string) string {
+	matches := c.csfdRegex.FindStringSubmatch(name)
+	if len(matches) >= 2 {
+		return matches[1] + "%"
+	}
+	return ""
+}
+
+func (c *Crawler) fetchCSFDURL(detailURL string) string {
+	if detailURL == "" {
+		return ""
+	}
+
+	req, err := http.NewRequest("GET", detailURL, nil)
+	if err != nil {
+		return ""
+	}
+	req.Header.Set("User-Agent", c.config.UserAgent)
+
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return ""
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return ""
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return ""
+	}
+
+	doc, err := goquery.NewDocumentFromReader(bytes.NewReader(body))
+	if err != nil {
+		return ""
+	}
+
+	// Hledat ČSFD odkaz pomocí různých selektorů
+	csfdSelectors := []string{
+		`a[itemprop="sameAs"][href*="csfd.cz"]`,
+		`a[href*="csfd.cz/film/"]`,
+		`a[href*="csfd.sk/film/"]`,
+	}
+
+	for _, selector := range csfdSelectors {
+		link := doc.Find(selector).First()
+		if link.Length() > 0 {
+			if href, exists := link.Attr("href"); exists {
+				return href
+			}
+		}
+	}
+
+	return ""
 }
 
 func (c *Crawler) parseMetadata(s *goquery.Selection, torrent *Torrent) {
@@ -235,6 +309,12 @@ func (c *Crawler) processResults(results <-chan CrawlResult) {
 			fmt.Printf("    🏷️  Kategorie: %s\n", torrent.Category)
 			fmt.Printf("    📦 Velikost: %s\n", torrent.Size)
 			fmt.Printf("    🌱 Seeders: %d | 🩸 Leechers: %d\n", torrent.Seeds, torrent.Leeches)
+			if torrent.CSFDRating != "" {
+				fmt.Printf("    ⭐ ČSFD: %s\n", torrent.CSFDRating)
+			}
+			if torrent.CSFDURL != "" {
+				fmt.Printf("    🎬 ČSFD URL: %s\n", torrent.CSFDURL)
+			}
 			if torrent.ImageURL != "" {
 				fmt.Printf("    🖼️  Obrázek: %s\n", torrent.ImageURL)
 			}
