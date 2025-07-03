@@ -37,7 +37,7 @@
   left: 0;
   right: 0;
   height: 3px;
-  background: linear-gradient(90deg, #1890ff 0%, #722ed1 100%);
+  background: #1890ff;
   border-radius: 20px 20px 0 0;
 }
 
@@ -70,7 +70,7 @@
   position: absolute;
   top: -8px;
   right: -8px;
-  background: linear-gradient(135deg, #ffd700 0%, #ffed4e 100%);
+  background: #ffd700;
   color: #000;
   padding: 4px 8px;
   border-radius: 8px;
@@ -169,7 +169,7 @@
 }
 
 .torrent-card-download-btn {
-  background: linear-gradient(135deg, #1890ff 0%, #722ed1 100%);
+  background: #1890ff;
   border: none;
   border-radius: 8px;
   flex: 1;

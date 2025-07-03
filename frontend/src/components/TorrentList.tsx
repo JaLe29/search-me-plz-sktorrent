@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Select, Input, Space, Spin, Alert, Row, Col, Button } from 'antd';
-import { SearchOutlined, FilterOutlined } from '@ant-design/icons';
+import { Select, Input, Space, Alert, Row, Col, Button } from 'antd';
+import { SearchOutlined, FilterOutlined, FileSearchOutlined } from '@ant-design/icons';
 import { useQuery, useLazyQuery } from '@apollo/client';
 import { TorrentCard } from './TorrentCard';
+import { TorrentCardSkeleton } from './TorrentCardSkeleton';
 import { GET_TORRENTS, GET_CATEGORIES } from '../graphql/queries';
 import type { TorrentSortBy, Category, Torrent } from '../types/graphql';
 
@@ -24,6 +25,8 @@ export const TorrentList: React.FC<TorrentListProps> = ({ pageSize = 24 }) => {
   const loadingRef = useRef<HTMLDivElement>(null);
 
   const { data: categoriesData } = useQuery(GET_CATEGORIES);
+
+
 
   // Initial load
   const { data, loading, error } = useQuery(GET_TORRENTS, {
@@ -52,9 +55,12 @@ export const TorrentList: React.FC<TorrentListProps> = ({ pageSize = 24 }) => {
   // Update all torrents when initial data arrives
   useEffect(() => {
     if (data?.torrents?.torrents) {
-      setAllTorrents(data.torrents.torrents);
+            // Remove duplicates by ID
+      const uniqueTorrents = data.torrents.torrents.filter((torrent: Torrent, index: number, self: Torrent[]) =>
+        index === self.findIndex((t: Torrent) => t.id === torrent.id)
+      );
+      setAllTorrents(uniqueTorrents);
       setHasMore(data.torrents.hasNextPage);
-      console.log('Initial load:', data.torrents.torrents.length, 'torrents');
     }
   }, [data]);
 
@@ -62,13 +68,12 @@ export const TorrentList: React.FC<TorrentListProps> = ({ pageSize = 24 }) => {
     if (isLoadingMore || !hasMore) return;
 
     setIsLoadingMore(true);
-    const currentLength = allTorrents.length;
 
     try {
       const result = await loadMoreQuery({
         variables: {
           first: pageSize,
-          after: currentLength.toString(),
+          after: allTorrents.length.toString(),
           category: selectedCategory || undefined,
           search: searchQuery || undefined,
           sortBy,
@@ -77,9 +82,16 @@ export const TorrentList: React.FC<TorrentListProps> = ({ pageSize = 24 }) => {
 
       if (result.data?.torrents) {
         const newTorrents = result.data.torrents.torrents;
-        setAllTorrents(prev => [...prev, ...newTorrents]);
+        setAllTorrents(prev => {
+          // Remove duplicates by ID
+          const allTorrents = [...prev, ...newTorrents];
+          const uniqueTorrents = allTorrents.filter((torrent: Torrent, index: number, self: Torrent[]) =>
+            index === self.findIndex((t: Torrent) => t.id === torrent.id)
+          );
+
+          return uniqueTorrents;
+        });
         setHasMore(result.data.torrents.hasNextPage);
-        console.log('Loaded more torrents:', newTorrents.length, 'Total:', allTorrents.length + newTorrents.length);
       }
     } catch (error) {
       console.error('Error loading more torrents:', error);
@@ -93,7 +105,6 @@ export const TorrentList: React.FC<TorrentListProps> = ({ pageSize = 24 }) => {
     const observer = new IntersectionObserver(
       (entries) => {
         if (entries[0].isIntersecting && hasMore && !isLoadingMore && !loadingMore) {
-          console.log('Intersection detected, loading more...');
           loadMore();
         }
       },
@@ -152,19 +163,44 @@ export const TorrentList: React.FC<TorrentListProps> = ({ pageSize = 24 }) => {
       {/* Moderní filtry */}
       <div style={{
         background: 'white',
-        boxShadow: '0 4px 24px rgba(0, 0, 0, 0.06)',
-        border: '1px solid #f0f0f0',
-        borderRadius: 20,
-        padding: '24px 32px',
+        boxShadow: '0 8px 32px rgba(0, 0, 0, 0.08)',
+        borderRadius: 16,
+        padding: '32px',
         marginBottom: 40,
+        border: 'none',
       }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
-          <FilterOutlined style={{ color: '#1890ff', fontSize: 16 }} />
-          <span style={{ color: '#262626', fontWeight: 500, fontSize: 14 }}>Filtry</span>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <div style={{
+              width: 32,
+              height: 32,
+              background: '#1890ff',
+              borderRadius: 8,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}>
+              <FilterOutlined style={{ color: 'white', fontSize: 16 }} />
+            </div>
+            <span style={{ color: '#262626', fontWeight: 600, fontSize: 18 }}>Filtry a vyhledávání</span>
+          </div>
+
+          {data?.torrents?.totalCount !== undefined && (
+            <div style={{
+              background: '#f8f9fa',
+              padding: '8px 16px',
+              borderRadius: 8,
+              border: '1px solid #e2e8f0',
+            }}>
+              <span style={{ color: '#8c8c8c', fontSize: 14 }}>
+                Celkem: <strong style={{ color: '#262626' }}>{data.torrents.totalCount.toLocaleString('cs-CZ')}</strong> torrentů
+              </span>
+            </div>
+          )}
         </div>
 
         <Space wrap size="large" style={{ width: '100%' }}>
-          <div style={{ display: 'flex', width: 300 }}>
+          <div style={{ display: 'flex', width: 320 }}>
             <Input
               placeholder="Hledat torrenty..."
               value={searchQuery}
@@ -174,6 +210,9 @@ export const TorrentList: React.FC<TorrentListProps> = ({ pageSize = 24 }) => {
                 borderTopRightRadius: 0,
                 borderBottomRightRadius: 0,
                 borderRight: 'none',
+                border: 'none',
+                boxShadow: 'none',
+                background: '#f8f9fa',
               }}
               prefix={<SearchOutlined style={{ color: '#1890ff' }} />}
               size="large"
@@ -185,8 +224,9 @@ export const TorrentList: React.FC<TorrentListProps> = ({ pageSize = 24 }) => {
               style={{
                 borderTopLeftRadius: 0,
                 borderBottomLeftRadius: 0,
-                background: 'linear-gradient(135deg, #1890ff 0%, #722ed1 100%)',
+                background: '#1890ff',
                 border: 'none',
+                boxShadow: 'none',
               }}
             >
               Hledat
@@ -197,15 +237,15 @@ export const TorrentList: React.FC<TorrentListProps> = ({ pageSize = 24 }) => {
             placeholder="Kategorie"
             allowClear
             style={{
-              width: 200,
+              width: 220,
               borderRadius: 12,
             }}
             onChange={handleCategoryChange}
             value={selectedCategory || undefined}
             size="large"
           >
-            {categoriesData?.categories?.map((category: Category) => (
-              <Option key={category.name} value={category.name}>
+            {categoriesData?.categories?.map((category: Category, index: number) => (
+              <Option key={`${category.name}-${index}`} value={category.name}>
                 {category.name} ({category.count})
               </Option>
             ))}
@@ -214,7 +254,7 @@ export const TorrentList: React.FC<TorrentListProps> = ({ pageSize = 24 }) => {
           <Select
             placeholder="Řazení"
             style={{
-              width: 160,
+              width: 180,
               borderRadius: 12,
             }}
             onChange={handleSortChange}
@@ -233,22 +273,64 @@ export const TorrentList: React.FC<TorrentListProps> = ({ pageSize = 24 }) => {
         </Space>
       </div>
 
+      {/* Results info */}
+      {allTorrents.length > 0 && (
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          marginBottom: 24,
+          padding: '16px 24px',
+          background: 'white',
+          borderRadius: 12,
+          boxShadow: '0 2px 8px rgba(0, 0, 0, 0.04)',
+          border: '1px solid #f0f0f0',
+        }}>
+          <span style={{ color: '#8c8c8c', fontSize: 14 }}>
+            Zobrazeno <strong style={{ color: '#262626' }}>{allTorrents.length}</strong> z <strong style={{ color: '#262626' }}>{data?.torrents?.totalCount?.toLocaleString('cs-CZ') || '?'}</strong> torrentů
+          </span>
+
+          {data?.torrents?.totalCount && allTorrents.length < data.torrents.totalCount && (
+            <span style={{ color: '#1890ff', fontSize: 14, fontWeight: 500 }}>
+              Scrollujte dolů pro další
+            </span>
+          )}
+        </div>
+      )}
+
       {/* Torrents Grid */}
       <Row gutter={[24, 24]} style={{ width: '100%' }} className="torrent-grid">
-        {allTorrents.map((torrent: Torrent) => (
-          <Col
-            key={torrent.id}
-            xs={24}
-            sm={24}
-            md={12}
-            lg={12}
-            xl={12}
-            xxl={12}
-            className="torrent-col"
-          >
-            <TorrentCard torrent={torrent} />
-          </Col>
-        ))}
+        {loading ? (
+          Array.from({ length: pageSize }).map((_, index) => (
+            <Col
+              key={`skeleton-${index}`}
+              xs={24}
+              sm={24}
+              md={12}
+              lg={12}
+              xl={12}
+              xxl={12}
+              className="torrent-col"
+            >
+              <TorrentCardSkeleton count={1} />
+            </Col>
+          ))
+        ) : (
+          allTorrents.map((torrent: Torrent) => (
+            <Col
+              key={torrent.id}
+              xs={24}
+              sm={24}
+              md={12}
+              lg={12}
+              xl={12}
+              xxl={12}
+              className="torrent-col"
+            >
+              <TorrentCard torrent={torrent} />
+            </Col>
+          ))
+        )}
       </Row>
 
       {/* Loading indicator for infinite scroll */}
@@ -262,7 +344,19 @@ export const TorrentList: React.FC<TorrentListProps> = ({ pageSize = 24 }) => {
           }}
         >
           {isLoadingMore || loadingMore ? (
-            <Spin size="large" />
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 16 }}>
+              <div style={{
+                width: 40,
+                height: 40,
+                border: '3px solid #f0f0f0',
+                borderTop: '3px solid #1890ff',
+                borderRadius: '50%',
+                animation: 'spin 1s linear infinite',
+              }} />
+              <div style={{ color: '#8c8c8c', fontSize: 14 }}>
+                Načítání dalších torrentů...
+              </div>
+            </div>
           ) : (
             <div style={{ color: '#8c8c8c', fontSize: 14 }}>
               Scrollujte dolů pro načtení dalších torrentů...
@@ -287,28 +381,63 @@ export const TorrentList: React.FC<TorrentListProps> = ({ pageSize = 24 }) => {
       {!loading && allTorrents.length === 0 && (
         <div style={{
           textAlign: 'center',
-          padding: '80px',
-          color: '#8c8c8c',
-          fontSize: 16,
+          padding: '80px 40px',
+          background: 'white',
+          borderRadius: 16,
+          boxShadow: '0 4px 24px rgba(0, 0, 0, 0.06)',
+          margin: '40px 0',
         }}>
-          Žádné torrenty nebyly nalezeny
+          <div style={{
+            width: 80,
+            height: 80,
+            background: '#f8f9fa',
+            borderRadius: '50%',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            margin: '0 auto 24px',
+          }}>
+            <FileSearchOutlined style={{ fontSize: 32, color: '#8c8c8c' }} />
+          </div>
+          <h3 style={{
+            color: '#262626',
+            fontSize: 20,
+            fontWeight: 600,
+            margin: '0 0 12px',
+          }}>
+            Žádné torrenty nebyly nalezeny
+          </h3>
+          <p style={{
+            color: '#8c8c8c',
+            fontSize: 16,
+            margin: '0 0 24px',
+            lineHeight: 1.5,
+          }}>
+            {searchQuery
+              ? `Pro vyhledávání "${searchQuery}" nebyly nalezeny žádné výsledky.`
+              : 'Zkuste změnit filtry nebo vyhledávací dotaz.'
+            }
+          </p>
+          <Button
+            type="primary"
+            size="large"
+            onClick={() => {
+              setSearchQuery('');
+              setSelectedCategory('');
+              setSortBy('NEWEST');
+            }}
+            style={{
+              background: '#1890ff',
+              border: 'none',
+              borderRadius: 8,
+            }}
+          >
+            Zobrazit všechny torrenty
+          </Button>
         </div>
       )}
 
-      {/* Debug info */}
-      <div style={{
-        position: 'fixed',
-        bottom: 10,
-        right: 10,
-        background: 'rgba(0,0,0,0.8)',
-        color: 'white',
-        padding: '8px 12px',
-        borderRadius: 8,
-        fontSize: 12,
-        zIndex: 1000,
-      }}>
-        Debug: {allTorrents.length} torrentů, hasMore: {hasMore.toString()}, loading: {loading.toString()}, loadingMore: {(isLoadingMore || loadingMore).toString()}
-      </div>
+
     </div>
   );
 };

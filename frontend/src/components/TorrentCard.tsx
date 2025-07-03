@@ -29,7 +29,7 @@ export const TorrentCard: React.FC<TorrentCardProps> = ({ torrent }) => {
     return new Date(dateString).toLocaleDateString('cs-CZ');
   };
 
-  const shouldShowRating = torrent.csfdRating && torrent.csfdRating > 0;
+  const shouldShowRating = (torrent.csfdRating ?? 0) > 0;
 
   return (
     <div className="torrent-card">

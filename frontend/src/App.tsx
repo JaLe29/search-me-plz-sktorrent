@@ -31,7 +31,7 @@ function App() {
             <div style={{
               width: 40,
               height: 40,
-              background: 'linear-gradient(135deg, #1890ff 0%, #722ed1 100%)',
+              background: '#1890ff',
               borderRadius: 12,
               display: 'flex',
               alignItems: 'center',
