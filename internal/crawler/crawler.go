@@ -48,6 +48,11 @@ type Crawler struct {
 	client    *http.Client
 	config    Config
 	csfdRegex *regexp.Regexp
+	// Error tracking for consecutive failures
+	consecutiveErrors int
+	errorMutex        sync.Mutex
+	stopCrawling      bool
+	stopMutex         sync.Mutex
 }
 
 func NewCrawler(config Config) *Crawler {
@@ -77,6 +82,10 @@ func NewCrawler(config Config) *Crawler {
 }
 
 func (c *Crawler) Crawl(from int, to int) {
+	// Reset error tracking for new crawl
+	c.consecutiveErrors = 0
+	c.setStopCrawling(false)
+
 	// Vytvoření kanálů pro paralelní zpracování
 	jobs := make(chan int, to-from+1)
 	results := make(chan CrawlResult, to-from+1)
@@ -91,6 +100,11 @@ func (c *Crawler) Crawl(from int, to int) {
 	// Odeslání úkolů do kanálu
 	go func() {
 		for pageNum := from; pageNum <= to; pageNum++ {
+			// Check if crawling should stop
+			if c.shouldStopCrawling() {
+				fmt.Printf("🛑 Stopping job distribution due to consecutive errors\n")
+				break
+			}
 			jobs <- pageNum
 		}
 		close(jobs)
@@ -110,8 +124,26 @@ func (c *Crawler) worker(jobs <-chan int, results chan<- CrawlResult, wg *sync.W
 	defer wg.Done()
 
 	for pageNum := range jobs {
+		// Check if crawling should stop
+		if c.shouldStopCrawling() {
+			fmt.Printf("Worker stopping due to consecutive errors\n")
+			return
+		}
+
 		fmt.Printf("Worker processing page %d...\n", pageNum)
 		torrents, err := c.crawlPage(pageNum)
+
+		// Record error and check if should stop
+		if c.recordError(err) {
+			// Send the result even if there's an error, so data can be saved
+			results <- CrawlResult{
+				PageNum:  pageNum,
+				Torrents: torrents,
+				Error:    err,
+			}
+			return
+		}
+
 		results <- CrawlResult{
 			PageNum:  pageNum,
 			Torrents: torrents,
@@ -385,12 +417,14 @@ func (c *Crawler) processResults(results <-chan CrawlResult) {
 	// Zpracování výsledků v pořadí
 	totalTorrents := 0
 	savedTorrents := 0
+	errorPages := 0
 
 	for pageNum := range resultMap {
 		result := resultMap[pageNum]
 
 		if result.Error != nil {
 			fmt.Printf("❌ CHYBA na stránce %d: %v\n", result.PageNum, result.Error)
+			errorPages++
 			continue
 		}
 
@@ -430,9 +464,18 @@ func (c *Crawler) processResults(results <-chan CrawlResult) {
 		totalTorrents += len(result.Torrents)
 	}
 
-	fmt.Printf("\n🎉 CRAWLING DOKONČEN! 🎉\n")
+	// Check if crawling was stopped due to consecutive errors
+	if c.shouldStopCrawling() {
+		fmt.Printf("\n🚫 CRAWLING UKONČEN KVŮLI CHYBÁM! 🚫\n")
+		fmt.Printf("⚠️  Crawling byl zastaven po %d po sobě jdoucích chybách (400/500 status)\n", c.consecutiveErrors)
+		fmt.Printf("💾 Data byla uložena i přes chyby\n")
+	} else {
+		fmt.Printf("\n🎉 CRAWLING DOKONČEN! 🎉\n")
+	}
+
 	fmt.Printf("📊 Celkový počet torrentů: %d\n", totalTorrents)
 	fmt.Printf("💾 Uloženo do databáze: %d\n", savedTorrents)
+	fmt.Printf("❌ Stránky s chybami: %d\n", errorPages)
 	fmt.Printf("⚙️  Použito workerů: %d\n", c.config.Workers)
 
 	// Zobrazení statistik databáze
@@ -462,4 +505,47 @@ func (c *Crawler) convertToDBTorrent(t Torrent) database.Torrent {
 		CSFDRating: t.CSFDRating,
 		CSFDURL:    t.CSFDURL,
 	}
+}
+
+// recordError tracks consecutive errors and determines if crawling should stop
+func (c *Crawler) recordError(err error) bool {
+	c.errorMutex.Lock()
+	defer c.errorMutex.Unlock()
+
+	// Check if this is an HTTP error (400 or 500 status)
+	if err != nil {
+		errStr := err.Error()
+		if strings.Contains(errStr, "status 4") || strings.Contains(errStr, "status 5") {
+			c.consecutiveErrors++
+			fmt.Printf("⚠️  Consecutive error #%d: %v\n", c.consecutiveErrors, err)
+
+			if c.consecutiveErrors >= 5 {
+				fmt.Printf("🚫 Stopping crawling after %d consecutive errors\n", c.consecutiveErrors)
+				c.setStopCrawling(true)
+				return true
+			}
+		} else {
+			// Reset counter for non-HTTP errors
+			c.consecutiveErrors = 0
+		}
+	} else {
+		// Reset counter on successful request
+		c.consecutiveErrors = 0
+	}
+
+	return false
+}
+
+// setStopCrawling sets the stop flag
+func (c *Crawler) setStopCrawling(stop bool) {
+	c.stopMutex.Lock()
+	defer c.stopMutex.Unlock()
+	c.stopCrawling = stop
+}
+
+// shouldStopCrawling checks if crawling should stop
+func (c *Crawler) shouldStopCrawling() bool {
+	c.stopMutex.Lock()
+	defer c.stopMutex.Unlock()
+	return c.stopCrawling
 }
