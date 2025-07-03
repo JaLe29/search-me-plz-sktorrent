@@ -465,3 +465,99 @@ func (d *Database) GetTorrentsByCSFDID(csfdID string, limit int) ([]TorrentWithS
 
 	return torrents, nil
 }
+
+// GetTorrentsWithPagination vrátí torrenty s stránkováním a informací o dalších stránkách
+func (d *Database) GetTorrentsWithPagination(offset, limit int, category *string, search *string, sortBy string) ([]TorrentWithStats, int, bool, error) {
+	if limit <= 0 {
+		limit = 20
+	}
+	if offset < 0 {
+		offset = 0
+	}
+
+	// Base query
+	baseQuery := `
+	SELECT t.id, t.name, t.category, t.size_mb, t.added_date, t.url, t.image_url,
+		   t.csfd_rating, t.csfd_url, t.created_at, t.updated_at,
+		   COALESCE(s.seeds, 0) as seeds, COALESCE(s.leeches, 0) as leeches
+	FROM torrents t
+	LEFT JOIN (
+		SELECT torrent_id, seeds, leeches,
+			   ROW_NUMBER() OVER (PARTITION BY torrent_id ORDER BY recorded_at DESC) as rn
+		FROM torrent_stats
+	) s ON t.id = s.torrent_id AND s.rn = 1
+	`
+
+	// Build WHERE clause
+	var whereClause string
+	var args []interface{}
+
+	if search != nil && *search != "" {
+		whereClause = "WHERE t.id IN (SELECT rowid FROM torrents_fts WHERE torrents_fts MATCH ?)"
+		args = append(args, *search)
+	} else if category != nil && *category != "" {
+		whereClause = "WHERE t.category = ?"
+		args = append(args, *category)
+	}
+
+	// Build ORDER BY clause
+	var orderBy string
+	switch sortBy {
+	case "OLDEST":
+		orderBy = "ORDER BY t.updated_at ASC"
+	case "NAME_ASC":
+		orderBy = "ORDER BY t.name ASC"
+	case "NAME_DESC":
+		orderBy = "ORDER BY t.name DESC"
+	case "SIZE_ASC":
+		orderBy = "ORDER BY t.size_mb ASC"
+	case "SIZE_DESC":
+		orderBy = "ORDER BY t.size_mb DESC"
+	case "SEEDS_DESC":
+		orderBy = "ORDER BY s.seeds DESC"
+	case "LEECHES_DESC":
+		orderBy = "ORDER BY s.leeches DESC"
+	default: // NEWEST
+		orderBy = "ORDER BY t.updated_at DESC"
+	}
+
+	// Count total results for hasNextPage
+	countQuery := fmt.Sprintf("SELECT COUNT(*) FROM torrents t %s", whereClause)
+	var totalCount int
+	err := d.db.QueryRow(countQuery, args...).Scan(&totalCount)
+	if err != nil {
+		return nil, 0, false, fmt.Errorf("counting torrents: %w", err)
+	}
+
+	// Get paginated results
+	query := fmt.Sprintf("%s %s %s LIMIT ? OFFSET ?", baseQuery, whereClause, orderBy)
+	args = append(args, limit+1, offset) // +1 to check if there are more results
+
+	rows, err := d.db.Query(query, args...)
+	if err != nil {
+		return nil, 0, false, fmt.Errorf("getting torrents with pagination: %w", err)
+	}
+	defer rows.Close()
+
+	var torrents []TorrentWithStats
+	for rows.Next() {
+		var t TorrentWithStats
+		err := rows.Scan(
+			&t.ID, &t.Name, &t.Category, &t.SizeMB, &t.AddedDate,
+			&t.URL, &t.ImageURL, &t.CSFDRating, &t.CSFDURL,
+			&t.CreatedAt, &t.UpdatedAt, &t.Seeds, &t.Leeches,
+		)
+		if err != nil {
+			return nil, 0, false, fmt.Errorf("scanning torrent: %w", err)
+		}
+		torrents = append(torrents, t)
+	}
+
+	// Check if there are more results
+	hasNextPage := len(torrents) > limit
+	if hasNextPage {
+		torrents = torrents[:limit] // Remove the extra item
+	}
+
+	return torrents, totalCount, hasNextPage, nil
+}

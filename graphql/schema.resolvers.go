@@ -6,6 +6,7 @@ package graphql
 
 import (
 	"context"
+	"strconv"
 
 	"github.com/JaLe29/search-me-plz-sktorrent/internal/database"
 )
@@ -44,32 +45,40 @@ func (r *queryResolver) Torrents(ctx context.Context, first *int, after *string,
 		limit = *first
 	}
 
-	var torrents []database.TorrentWithStats
-	var err error
-
-	if search != nil && *search != "" {
-		torrents, err = r.DB.SearchTorrents(*search, limit)
-	} else if category != nil && *category != "" {
-		torrents, err = r.DB.GetTorrentsByCategory(*category, limit)
-	} else {
-		torrents, err = r.DB.GetRecentTorrents(limit)
+	// Parse offset from after cursor
+	offset := 0
+	if after != nil && *after != "" {
+		if parsedOffset, err := strconv.Atoi(*after); err == nil {
+			offset = parsedOffset
+		}
 	}
+
+	// Convert sortBy enum to string
+	sortByStr := "NEWEST"
+	if sortBy != nil {
+		sortByStr = string(*sortBy)
+	}
+
+	// Get torrents with pagination
+	torrents, totalCount, hasNextPage, err := r.DB.GetTorrentsWithPagination(offset, limit, category, search, sortByStr)
 	if err != nil {
 		return nil, err
 	}
 
-	// TODO: stránkování (after, hasNextPage, hasPreviousPage)
+	// Convert to GraphQL format
 	var gqlTorrents []*Torrent
 	for _, t := range torrents {
 		gqlTorrents = append(gqlTorrents, mapTorrentWithStatsToGraphQL(t))
 	}
 
-	totalCount := len(gqlTorrents) // Pro jednoduchost, ideálně dotaz COUNT(*)
+	// Calculate hasPreviousPage
+	hasPreviousPage := offset > 0
+
 	return &TorrentConnection{
 		Torrents:        gqlTorrents,
 		TotalCount:      totalCount,
-		HasNextPage:     false,
-		HasPreviousPage: false,
+		HasNextPage:     hasNextPage,
+		HasPreviousPage: hasPreviousPage,
 	}, nil
 }
 

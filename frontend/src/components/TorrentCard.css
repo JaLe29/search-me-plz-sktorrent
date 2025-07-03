@@ -1,0 +1,236 @@
+/* Grid layout styles */
+.torrent-grid {
+  display: flex;
+  flex-wrap: wrap;
+}
+
+.torrent-col {
+  display: flex;
+  flex-direction: column;
+}
+
+.torrent-card {
+  background: white;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.06);
+  border: 1px solid #f0f0f0;
+  border-radius: 20px;
+  padding: 24px;
+  height: 100%;
+  min-height: 200px;
+  display: flex;
+  flex-direction: column;
+  transition: all 0.3s ease;
+  position: relative;
+  overflow: hidden;
+  flex: 1;
+}
+
+.torrent-card:hover {
+  transform: translateY(-4px);
+  border: 1px solid #1890ff;
+  box-shadow: 0 20px 40px rgba(24, 144, 255, 0.15);
+}
+
+.torrent-card-gradient {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: linear-gradient(90deg, #1890ff 0%, #722ed1 100%);
+  border-radius: 20px 20px 0 0;
+}
+
+.torrent-card-content {
+  display: flex;
+  gap: 24px;
+  margin-bottom: 16px;
+  flex-direction: column;
+  flex: 1;
+}
+
+.torrent-card-image-container {
+  position: relative;
+  flex-shrink: 0;
+  display: flex;
+  justify-content: center;
+}
+
+.torrent-card-image {
+  object-fit: cover;
+  border-radius: 16px;
+  border: 1px solid #f0f0f0;
+  width: 80px;
+  height: 120px;
+  max-height: 120px;
+  aspect-ratio: 2/3;
+}
+
+.torrent-card-rating {
+  position: absolute;
+  top: -8px;
+  right: -8px;
+  background: linear-gradient(135deg, #ffd700 0%, #ffed4e 100%);
+  color: #000;
+  padding: 4px 8px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  box-shadow: 0 2px 8px rgba(255, 215, 0, 0.3);
+}
+
+.torrent-card-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+}
+
+.torrent-card-title {
+  margin-bottom: 12px;
+  font-weight: 600;
+  color: #262626;
+  line-height: 1.4;
+  word-break: break-word;
+  font-size: 16px;
+  text-align: center;
+  flex: 1;
+}
+
+.torrent-card-category {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 12px;
+}
+
+.torrent-card-tag {
+  background: rgba(24, 144, 255, 0.1);
+  border: 1px solid rgba(24, 144, 255, 0.2);
+  color: #1890ff;
+  border-radius: 8px;
+  font-size: 14px;
+  padding: 4px 12px;
+}
+
+.torrent-card-date {
+  margin-bottom: 12px;
+  text-align: center;
+}
+
+.torrent-card-date-text {
+  color: #8c8c8c;
+  font-size: 14px;
+}
+
+.torrent-card-size {
+  text-align: center;
+  margin-bottom: 12px;
+}
+
+.torrent-card-size-text {
+  color: #262626;
+  font-weight: 500;
+  font-size: 16px;
+  display: block;
+}
+
+.torrent-card-stats {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 12px;
+}
+
+.torrent-card-stat {
+  border-radius: 6px;
+  font-size: 14px;
+  padding: 4px 10px;
+}
+
+.torrent-card-seeds {
+  background: rgba(82, 196, 26, 0.1);
+  border: 1px solid rgba(82, 196, 26, 0.2);
+  color: #52c41a;
+}
+
+.torrent-card-leeches {
+  background: rgba(255, 77, 79, 0.1);
+  border: 1px solid rgba(255, 77, 79, 0.2);
+  color: #ff4d4f;
+}
+
+.torrent-card-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: auto;
+  padding-top: 16px;
+  border-top: 1px solid #f0f0f0;
+  flex-shrink: 0;
+}
+
+.torrent-card-download-btn {
+  background: linear-gradient(135deg, #1890ff 0%, #722ed1 100%);
+  border: none;
+  border-radius: 8px;
+  flex: 1;
+}
+
+.torrent-card-csfd-btn {
+  background: white;
+  border: 1px solid #d9d9d9;
+  border-radius: 8px;
+  color: #8c8c8c;
+}
+
+/* Desktop styles */
+@media (min-width: 768px) {
+  .torrent-card-content {
+    flex-direction: row;
+  }
+
+  .torrent-card-image-container {
+    justify-content: flex-start;
+  }
+
+  .torrent-card-image {
+    width: 100px;
+    height: 150px;
+    max-height: 150px;
+    aspect-ratio: 2/3;
+  }
+
+  .torrent-card-title {
+    text-align: left;
+    font-size: 18px;
+  }
+
+  .torrent-card-category {
+    justify-content: flex-start;
+  }
+
+  .torrent-card-date {
+    text-align: left;
+  }
+
+  .torrent-card-size {
+    text-align: left;
+  }
+
+  .torrent-card-stats {
+    justify-content: flex-start;
+  }
+}
+
+/* Tablet styles */
+@media (min-width: 768px) and (max-width: 1023px) {
+  .torrent-card-image {
+    width: 80px;
+    height: 120px;
+    max-height: 120px;
+    aspect-ratio: 2/3;
+  }
+
+  .torrent-card-title {
+    font-size: 16px;
+  }
+}
