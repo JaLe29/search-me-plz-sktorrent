@@ -98,3 +98,23 @@ export const GET_STATS = gql`
     }
   }
 `;
+
+export const GET_TORRENTS_BY_CSFD_ID = gql`
+  query GetTorrentsByCSFDID($csfdID: String!, $limit: Int) {
+    torrentsByCSFDID(csfdID: $csfdID, limit: $limit) {
+      id
+      name
+      category
+      sizeMB
+      addedDate
+      url
+      imageURL
+      csfdRating
+      csfdURL
+      createdAt
+      updatedAt
+      seeds
+      leeches
+    }
+  }
+`;

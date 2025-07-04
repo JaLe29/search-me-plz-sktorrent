@@ -230,18 +230,18 @@ func (d *Database) SearchTorrents(query string, limit int) ([]TorrentWithStats, 
 		   t.csfd_rating, t.csfd_url, t.created_at, t.updated_at,
 		   COALESCE(s.seeds, 0) as seeds, COALESCE(s.leeches, 0) as leeches
 	FROM torrents t
-	JOIN torrents_fts fts ON t.rowid = fts.rowid
 	LEFT JOIN (
 		SELECT torrent_id, seeds, leeches,
 			   ROW_NUMBER() OVER (PARTITION BY torrent_id ORDER BY recorded_at DESC) as rn
 		FROM torrent_stats
 	) s ON t.id = s.torrent_id AND s.rn = 1
-	WHERE torrents_fts MATCH ?
-	ORDER BY bm25(torrents_fts) DESC
+	WHERE (t.name LIKE ? OR t.category LIKE ?)
+	ORDER BY t.updated_at DESC
 	LIMIT ?
 	`
 
-	rows, err := d.db.Query(sqlQuery, query, limit)
+	searchTerm := "%" + query + "%"
+	rows, err := d.db.Query(sqlQuery, searchTerm, searchTerm, limit)
 	if err != nil {
 		return nil, fmt.Errorf("searching torrents: %w", err)
 	}
@@ -493,8 +493,10 @@ func (d *Database) GetTorrentsWithPagination(offset, limit int, category *string
 	var args []interface{}
 
 	if search != nil && *search != "" {
-		whereClause = "WHERE t.id IN (SELECT rowid FROM torrents_fts WHERE torrents_fts MATCH ?)"
-		args = append(args, *search)
+		// Use LIKE for contains search instead of FTS5 for better partial matching
+		whereClause = "WHERE (t.name LIKE ? OR t.category LIKE ?)"
+		searchTerm := "%" + *search + "%"
+		args = append(args, searchTerm, searchTerm)
 	} else if category != nil && *category != "" {
 		whereClause = "WHERE t.category = ?"
 		args = append(args, *category)
@@ -522,7 +524,12 @@ func (d *Database) GetTorrentsWithPagination(offset, limit int, category *string
 	}
 
 	// Count total results for hasNextPage
-	countQuery := fmt.Sprintf("SELECT COUNT(*) FROM torrents t %s", whereClause)
+	var countQuery string
+	if whereClause != "" {
+		countQuery = "SELECT COUNT(*) FROM torrents t " + whereClause
+	} else {
+		countQuery = "SELECT COUNT(*) FROM torrents t"
+	}
 	var totalCount int
 	err := d.db.QueryRow(countQuery, args...).Scan(&totalCount)
 	if err != nil {
@@ -530,7 +537,12 @@ func (d *Database) GetTorrentsWithPagination(offset, limit int, category *string
 	}
 
 	// Get paginated results
-	query := fmt.Sprintf("%s %s %s LIMIT ? OFFSET ?", baseQuery, whereClause, orderBy)
+	var query string
+	if whereClause != "" {
+		query = baseQuery + " " + whereClause + " " + orderBy + " LIMIT ? OFFSET ?"
+	} else {
+		query = baseQuery + " " + orderBy + " LIMIT ? OFFSET ?"
+	}
 	args = append(args, limit+1, offset) // +1 to check if there are more results
 
 	rows, err := d.db.Query(query, args...)

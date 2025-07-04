@@ -4,6 +4,7 @@ import {
   DownloadOutlined,
   EyeOutlined,
   CalendarOutlined,
+  HddOutlined,
 } from '@ant-design/icons';
 import type { Torrent } from '../types/graphql';
 import './TorrentCard.css';
@@ -15,14 +16,26 @@ interface TorrentCardProps {
 }
 
 export const TorrentCard: React.FC<TorrentCardProps> = ({ torrent }) => {
-  const formatSize = (sizeMB: number): string => {
+  const formatSize = (sizeMB: number): { value: string; unit: string; color: string } => {
     if (sizeMB >= 1024 * 1024) {
-      return `${(sizeMB / (1024 * 1024)).toFixed(1)} TB`;
+      return {
+        value: (sizeMB / (1024 * 1024)).toFixed(1),
+        unit: 'TB',
+        color: '#ff4d4f'
+      };
     }
     if (sizeMB >= 1024) {
-      return `${(sizeMB / 1024).toFixed(1)} GB`;
+      return {
+        value: (sizeMB / 1024).toFixed(1),
+        unit: 'GB',
+        color: '#fa8c16'
+      };
     }
-    return `${sizeMB.toFixed(1)} MB`;
+    return {
+      value: sizeMB.toFixed(1),
+      unit: 'MB',
+      color: '#52c41a'
+    };
   };
 
   const formatDate = (dateString: string): string => {
@@ -30,6 +43,7 @@ export const TorrentCard: React.FC<TorrentCardProps> = ({ torrent }) => {
   };
 
   const shouldShowRating = (torrent.csfdRating ?? 0) > 0;
+  const sizeInfo = formatSize(torrent.sizeMB);
 
   return (
     <div className="torrent-card">
@@ -75,9 +89,21 @@ export const TorrentCard: React.FC<TorrentCardProps> = ({ torrent }) => {
           </div>
 
           <div className="torrent-card-size">
-            <Text className="torrent-card-size-text">
-              {formatSize(torrent.sizeMB)}
-            </Text>
+            <div className="torrent-card-size-container">
+              <HddOutlined style={{
+                marginRight: 8,
+                color: sizeInfo.color,
+                fontSize: 16
+              }} />
+              <Text className="torrent-card-size-text">
+                <span style={{ color: sizeInfo.color, fontWeight: 600 }}>
+                  {sizeInfo.value}
+                </span>
+                <span style={{ color: '#8c8c8c', marginLeft: 2 }}>
+                  {sizeInfo.unit}
+                </span>
+              </Text>
+            </div>
           </div>
 
           <div className="torrent-card-stats">
